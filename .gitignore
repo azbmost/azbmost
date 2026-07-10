@@ -1,0 +1,9 @@
+# Keep this repository limited to the launcher, its primary documentation,
+# and its visual assets. All other local files remain outside Git.
+*
+!.gitignore
+!assets/
+!assets/**
+!azbmost.py
+!MANUAL.md
+!README.md
