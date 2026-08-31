@@ -208,7 +208,10 @@ def extract_other_tools(source: str) -> tuple[str, ...]:
     labels: list[str] = []
     patterns = (
         r"(?:ttk|tk)\.Button\([^)]*?text\s*=\s*['\"]([^'\"]+)['\"]",
-        r"\badd_tool_button\(\s*[^,\n]+,\s*['\"]([^'\"]+)['\"]",
+        # The helper's layout arguments may change (for example, from
+        # ``column, label`` to ``row, column, label``).  Treat the first
+        # string-literal positional argument as the displayed tool label.
+        r"\badd_tool_button\((?:\s*[^,'\"\n]+,\s*)+['\"]([^'\"]+)['\"]",
     )
     for pattern in patterns:
         for match in re.finditer(pattern, section, re.DOTALL):

@@ -4,6 +4,8 @@
 !.gitignore
 !assets/
 !assets/**
+!tests/
+!tests/*.py
 !azbmost.py
 !MANUAL.md
 !README.md
