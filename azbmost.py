@@ -140,6 +140,213 @@ def save_config(paths: Dict[str, tk.StringVar]) -> None:
         messagebox.showwarning(APP_TITLE, f"Could not save launcher settings:\n\n{exc}")
 
 
+# --------------------------------------------------------------- shared path
+# "Shared Python path" lets the three modules import each other. One .pth file in
+# the running interpreter's user site-packages holds the three REPO ROOTS, so each
+# library is reached package-qualified -- curve_it_lib.x, re_helix_lib.y -- and the
+# two copies of edit_pdb_atom stay distinct modules.
+#
+# Repo ROOTS, never the *_lib directories. Putting a lib dir on the path exposes its
+# modules under bare names as well, so one file becomes two module objects with two
+# different classes and isinstance() silently fails across them. re_helix_lib's
+# re_helix_ccgV3_1 / re_helix_cckV3_1 already insert their own lib dir at sys.path[0]
+# on import, which is exactly how that would happen here.
+#
+# State is never stored: save_config() rewrites ~/.azbmost_launcher.json wholesale
+# from the path variables, and load_config() drops non-string values, so any flag
+# kept there would be erased on the next Save. The panel measures instead.
+
+PTH_FILENAME = "azbmost_paths.pth"
+PTH_HEADER = "# Written by the AZBMOST launcher: Shared Python path. Delete to disable."
+
+# What each module must expose for sharing to be useful. The second entry is a real
+# submodule, because importing the bare package proves almost nothing.
+PROBE_TARGETS: Dict[str, tuple[str, str]] = {
+    "bnp_na": ("bnp_na_lib", "bnp_na_lib.build_arna"),
+    "curve_it": ("curve_it_lib", "curve_it_lib.interpolate_xyz"),
+    "re_helix": ("re_helix_lib", "re_helix_lib.edit_pdb_atom"),
+}
+
+
+def user_site_dir() -> Optional[Path]:
+    """The user site-packages of the interpreter running this launcher.
+
+    Returns None when user site is disabled -- inside a venv, or under python3 -s.
+    site.getusersitepackages() still answers there, but with the BASE interpreter's
+    directory, so writing to it would switch sharing on machine-wide for a Python
+    this launcher is not even using.
+    """
+    try:
+        import site
+
+        if not getattr(site, "ENABLE_USER_SITE", False):
+            return None
+        return Path(site.getusersitepackages())
+    except Exception:
+        return None
+
+
+def pth_file_path() -> Optional[Path]:
+    site_dir = user_site_dir()
+    return None if site_dir is None else site_dir / PTH_FILENAME
+
+
+def configured_roots(path_vars: Dict[str, tk.StringVar]) -> Dict[str, Path]:
+    """Configured repo root per module key, canonicalised.
+
+    resolve() matters here: /Users/diliu/AllDropbox holds several spellings of the
+    same tree ("ASU Dropbox/Di Liu", "Dropbox (ASU)"), and two spellings of one
+    folder on sys.path would import every module twice.
+    """
+    roots: Dict[str, Path] = {}
+    for spec in MODULES:
+        var = path_vars.get(spec.key)
+        if var is None:
+            continue
+        try:
+            roots[spec.key] = resolve_user_path(var.get()).resolve()
+        except Exception:
+            continue
+    return roots
+
+
+def usable_roots(path_vars: Dict[str, tk.StringVar]) -> Dict[str, Path]:
+    """Only the roots that exist and hold their entry script.
+
+    Kept per-module on purpose: one moved folder must not strip the other two off
+    the path of everything the launcher starts.
+    """
+    good: Dict[str, Path] = {}
+    for spec in MODULES:
+        root = configured_roots(path_vars).get(spec.key)
+        if root is not None and root.is_dir() and (root / spec.entry_script).is_file():
+            good[spec.key] = root
+    return good
+
+
+def read_pth_roots() -> list[Path]:
+    path = pth_file_path()
+    if path is None or not path.exists():
+        return []
+    roots: list[Path] = []
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#"):
+                roots.append(Path(line))
+    except Exception:
+        return []
+    return roots
+
+
+def write_pth(roots: Dict[str, Path]) -> Path:
+    path = pth_file_path()
+    if path is None:
+        raise RuntimeError(
+            "This interpreter has user site-packages disabled (a virtual environment, "
+            "or python3 -s), so there is nowhere safe to write the shared path file.\n\n"
+            "Start the launcher with the Python you use for the modules."
+        )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # A .pth line is taken verbatim, so the spaces in the Dropbox paths need no quoting.
+    body = [PTH_HEADER] + [str(root) for _key, root in sorted(roots.items())]
+    path.write_text("\n".join(body) + "\n", encoding="utf-8")
+    return path
+
+
+def remove_pth() -> Optional[Path]:
+    path = pth_file_path()
+    if path is None or not path.exists():
+        return None
+    path.unlink()
+    return path
+
+
+def shared_child_env(path_vars: Dict[str, tk.StringVar]) -> Optional[Dict[str, str]]:
+    """Environment for a launched tool, with the usable roots put on PYTHONPATH.
+
+    Given to tools the launcher starts so sharing works even before the .pth is
+    written, and regardless of which interpreter ends up running the child.
+    """
+    roots = usable_roots(path_vars)
+    if not roots:
+        return None
+    env = dict(os.environ)
+    existing = [p for p in env.get("PYTHONPATH", "").split(os.pathsep) if p.strip()]
+    entries = [str(root) for _key, root in sorted(roots.items())]
+    for item in existing:
+        if item not in entries:
+            entries.append(item)
+    env["PYTHONPATH"] = os.pathsep.join(entries)
+    return env
+
+
+_PROBE_CODE = """
+import json, sys
+targets = json.loads(sys.argv[1])
+out = {}
+for key, (pkg, submodule) in targets.items():
+    entry = {"package": False, "submodule": False, "error": "", "file": ""}
+    try:
+        mod = __import__(pkg)
+        entry["package"] = True
+        entry["file"] = getattr(mod, "__file__", "") or ""
+    except Exception as exc:
+        entry["error"] = "%s: %s" % (type(exc).__name__, exc)
+        out[key] = entry
+        continue
+    try:
+        __import__(submodule)
+        entry["submodule"] = True
+    except Exception as exc:
+        entry["error"] = "%s: %s" % (type(exc).__name__, exc)
+    out[key] = entry
+# A module reachable under both a bare and a dotted name is two objects with two
+# sets of classes; report it rather than let it corrupt data silently.
+twins = sorted(n for n in ("edit_pdb_atom", "align2z", "build_common", "core_BZ",
+                           "na_placer", "interpolate_xyz", "geometry_utils")
+               if n in sys.modules)
+print("<<AZBMOST>>" + json.dumps({"modules": out, "flat_twins": twins}))
+"""
+
+
+def probe_shared_imports() -> Dict[str, object]:
+    """Ask a fresh interpreter what it can actually import.
+
+    Deliberately measured rather than inferred from the .pth file existing. The
+    child starts from the home directory with PYTHONPATH stripped, so neither the
+    launcher's own sys.path nor the empty PYTHONPATH entry that ~/.zprofile
+    currently produces (a leading ':' puts the working directory on sys.path) can
+    make a module look importable when it is not.
+    """
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    try:
+        completed = subprocess.run(
+            [sys.executable or "python3", "-c", _PROBE_CODE, json.dumps(PROBE_TARGETS)],
+            capture_output=True,
+            text=True,
+            cwd=str(Path.home()),
+            env=env,
+            timeout=60,
+        )
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "modules": {}, "flat_twins": []}
+    for line in (completed.stdout or "").splitlines():
+        if line.startswith("<<AZBMOST>>"):
+            try:
+                payload = json.loads(line[len("<<AZBMOST>>"):])
+            except Exception:
+                break
+            payload["ok"] = True
+            return payload
+    return {
+        "ok": False,
+        "error": (completed.stderr or "no output from the probe").strip()[:300],
+        "modules": {},
+        "flat_twins": [],
+    }
+
+
 def module_script_path(spec: ModuleSpec, module_dir: Path) -> Path:
     return module_dir / spec.entry_script
 
@@ -323,6 +530,10 @@ class ModuleRow:
 
     def on_path_changed(self) -> None:
         self.refresh(save=True)
+        # The .pth holds the folders as they were when Enable ran. Re-point a module
+        # and it goes stale, so re-measure rather than leave the panel claiming a
+        # state that no longer matches what a fresh interpreter would import.
+        self.app.on_module_paths_changed()
 
     def open_folder(self) -> None:
         module_dir = resolve_user_path(self.path_var.get())
@@ -349,13 +560,20 @@ class ModuleRow:
             )
             return
 
+        env = shared_child_env(self.app.path_vars)
         try:
-            subprocess.Popen(launch_command(script_path), cwd=str(module_dir))
+            subprocess.Popen(launch_command(script_path), cwd=str(module_dir), env=env)
         except Exception as exc:
             messagebox.showerror(APP_TITLE, f"Could not launch {self.spec.title}:\n\n{exc}")
             return
 
-        self.app.set_footer(f"Launched {self.spec.title}.")
+        shared_count = len(usable_roots(self.app.path_vars))
+        if env is not None and shared_count > 1:
+            self.app.set_footer(
+                f"Launched {self.spec.title} with {shared_count} module folders on its Python path."
+            )
+        else:
+            self.app.set_footer(f"Launched {self.spec.title}.")
         self.on_path_changed()
 
     def refresh(self, *, save: bool) -> None:
@@ -414,9 +632,13 @@ class AzbmostLauncher:
         self.path_vars: Dict[str, tk.StringVar] = {}
         self.placeholder_icon = self.make_placeholder_icon()
         self.footer_var = tk.StringVar(value="Choose module folders if they are not in the default sibling locations.")
+        self.shared_var = tk.StringVar(value="Shared Python path: checking…")
+        self.shared_detail_var = tk.StringVar(value="")
 
         self.configure_window()
         self.build_ui()
+        # Measure after the window is up; the probe spawns an interpreter.
+        self.root.after(150, self.recheck_shared)
 
     def configure_window(self) -> None:
         self.root.title(APP_TITLE)
@@ -472,8 +694,22 @@ class AzbmostLauncher:
             if row_index < len(MODULES) - 1:
                 ttk.Separator(rows_frame).grid(row=row_index * 2 + 1, column=0, sticky="ew", pady=(1, 0))
 
+        shared = ttk.Frame(outer)
+        shared.grid(row=4, column=0, sticky="ew", pady=(16, 0))
+        shared.columnconfigure(0, weight=1)
+        ttk.Separator(shared).grid(row=0, column=0, columnspan=4, sticky="ew", pady=(0, 10))
+        ttk.Label(shared, textvariable=self.shared_var, style="Metadata.TLabel").grid(
+            row=1, column=0, sticky="w"
+        )
+        ttk.Button(shared, text="Enable", command=self.enable_shared).grid(row=1, column=1, padx=(8, 0))
+        ttk.Button(shared, text="Disable", command=self.disable_shared).grid(row=1, column=2, padx=(8, 0))
+        ttk.Button(shared, text="Re-check", command=self.recheck_shared).grid(row=1, column=3, padx=(8, 0))
+        ttk.Label(shared, textvariable=self.shared_detail_var, style="Status.TLabel").grid(
+            row=2, column=0, columnspan=4, sticky="w", pady=(4, 0)
+        )
+
         controls = ttk.Frame(outer)
-        controls.grid(row=4, column=0, sticky="ew", pady=(18, 0))
+        controls.grid(row=5, column=0, sticky="ew", pady=(18, 0))
         controls.columnconfigure(0, weight=1)
         ttk.Label(controls, textvariable=self.footer_var, style="Footer.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Button(controls, text="Reset Defaults", command=self.reset_defaults).grid(row=0, column=1, padx=(8, 0))
@@ -499,6 +735,113 @@ class AzbmostLauncher:
 
     def set_footer(self, text: str) -> None:
         self.footer_var.set(text)
+
+    # ----------------------------------------------------------- shared path
+    def on_module_paths_changed(self) -> None:
+        """A module folder moved. Rewrite the .pth if sharing is on, then re-measure."""
+        if pth_file_path() is not None and read_pth_roots():
+            roots = usable_roots(self.path_vars)
+            if roots:
+                try:
+                    write_pth(roots)
+                except Exception:
+                    pass
+        self.recheck_shared()
+
+    def recheck_shared(self) -> None:
+        result = probe_shared_imports()
+        pth = pth_file_path()
+        installed = bool(read_pth_roots())
+
+        if not result.get("ok"):
+            self.shared_var.set("Shared Python path: could not measure")
+            self.shared_detail_var.set(str(result.get("error", ""))[:160])
+            return
+
+        modules = result.get("modules", {})
+        full, partial, missing = [], [], []
+        for spec in MODULES:
+            entry = modules.get(spec.key, {})
+            if entry.get("submodule"):
+                full.append(spec.title)
+            elif entry.get("package"):
+                partial.append(spec.title)
+            else:
+                missing.append(spec.title)
+
+        if not full and not partial:
+            self.shared_var.set("Shared Python path: OFF")
+            self.shared_detail_var.set(
+                "The modules cannot import each other outside the launcher. "
+                + (f"Enable writes {pth}." if pth else "No user site-packages on this interpreter.")
+            )
+            return
+
+        state = "ON" if installed else "ON (from something other than this launcher)"
+        self.shared_var.set(f"Shared Python path: {state} — {len(full)} of {len(MODULES)} fully importable")
+        bits = []
+        if full:
+            bits.append("importable: " + ", ".join(full))
+        if partial:
+            bits.append(
+                "package only: " + ", ".join(partial)
+                + " (its library imports its own modules by bare name, so submodules need migrating)"
+            )
+        if missing:
+            bits.append("not importable: " + ", ".join(missing))
+        twins = result.get("flat_twins") or []
+        if twins:
+            bits.append("WARNING duplicate module identities: " + ", ".join(twins))
+        self.shared_detail_var.set("  ·  ".join(bits)[:400])
+
+    def enable_shared(self) -> None:
+        roots = usable_roots(self.path_vars)
+        if not roots:
+            messagebox.showerror(
+                APP_TITLE,
+                "None of the module folders could be found, so there is nothing to share.\n\n"
+                "Set the folders above first.",
+            )
+            return
+        target = pth_file_path()
+        if target is None:
+            messagebox.showerror(
+                APP_TITLE,
+                "This interpreter has user site-packages disabled (a virtual environment, or "
+                "python3 -s), so writing the shared path file would affect a different Python "
+                "than the one running here.\n\nStart the launcher with the Python you use for "
+                "the modules.",
+            )
+            return
+        skipped = [s.title for s in MODULES if s.key not in roots]
+        listing = "\n".join(f"    {root}" for _key, root in sorted(roots.items()))
+        note = f"\n\nNot included (folder or entry script missing): {', '.join(skipped)}" if skipped else ""
+        if not messagebox.askokcancel(
+            APP_TITLE,
+            f"Write this one file:\n\n    {target}\n\ncontaining these folders:\n\n{listing}{note}\n\n"
+            "Every Python program run with this interpreter will then be able to import them. "
+            "Disable removes the file.",
+        ):
+            return
+        try:
+            written = write_pth(roots)
+        except Exception as exc:
+            messagebox.showerror(APP_TITLE, f"Could not enable the shared path:\n\n{exc}")
+            return
+        self.recheck_shared()
+        self.set_footer(f"Wrote {written}.")
+
+    def disable_shared(self) -> None:
+        try:
+            removed = remove_pth()
+        except Exception as exc:
+            messagebox.showerror(APP_TITLE, f"Could not remove the shared path file:\n\n{exc}")
+            return
+        self.recheck_shared()
+        if removed is None:
+            self.set_footer("No shared path file written by this launcher was found.")
+        else:
+            self.set_footer(f"Removed {removed}.")
 
 
 def main() -> int:
