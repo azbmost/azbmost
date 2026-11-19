@@ -7,5 +7,7 @@
 !tests/
 !tests/*.py
 !azbmost.py
+!azbmost_ui.py
+!azbmost_icons.py
 !MANUAL.md
 !README.md

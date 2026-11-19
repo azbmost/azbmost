@@ -8,12 +8,17 @@ principles, and their day-to-day usage.
 
 | # | Tool | Folder | Version | One-line purpose |
 | --- | --- | --- | --- | --- |
-| 1 | **BNP-NA** (`bnp_na`) | `../bnp_na/` | V13.9 | Build and place B/A/Z-DNA and A-RNA helices; B-Z, triplex, and analysis helpers |
-| 2 | **Re-Helix** (`re_helix`) | `../re_helix/` | V3.18 | Align helices and perform reciprocal exchanges (crossovers/junctions) |
-| 3 | **Curve It** (`curve_it`) | `../curve_it/` | V3_4 | Sculpt a straight PDB structure so its axis follows any 3D curve |
+| 1 | **BNP-NA** (`bnp_na`) | `../bnp_na/` | V13.21 | Build and place B/A/Z-DNA and A-RNA helices; B-Z, triplex, and analysis helpers |
+| 2 | **Re-Helix** (`re_helix`) | `../re_helix/` | V4.7 | Align helices and perform reciprocal exchanges (crossovers/junctions) |
+| 3 | **Curve It** (`curve_it`) | `../curve_it/` | V3_15 | Sculpt a straight PDB structure so its axis follows any 3D curve |
 
-The `azbmost.py` script in this folder is a universal launcher: it lets you point
-at each module's folder and start its GUI with one click. This manual is the
+The `azbmost.py` script in this folder is a universal launcher (V1.1): it lets you
+point at each module's folder and start its GUI with one click. The launcher and
+all three tools, including every bundled tool window, share one look: the shared
+theme `azbmost_ui.py` and the icon artwork `azbmost_icons.py`, identical copies of
+which ship beside the launcher and in each tool's library folder. The new windows
+call the modules BNP_NA, RE_Helix and Curve_It; this manual and the title bars
+still use the older spellings BNP-NA, Re-Helix and Curve It. This manual is the
 single combined reference for all three tools; each tool folder also ships its
 own `README.md` and `CHANGELOG.md` with the fine-grained, version-by-version
 details.
@@ -200,14 +205,18 @@ git pull
 python3 azbmost.py
 ```
 
-For each of the three modules it shows a row with:
+For each of the three modules it shows a card with:
 
+- the module's icon, name, detected **version** and a status dot (**Ready**,
+  entry script missing, or folder not found);
 - an editable **folder path** (defaults to the sibling folders `../bnp_na`,
   `../re_helix`, `../curve_it`);
-- **Browse…**, **Launch**, and **Open Folder** buttons;
-- a status line that reports whether the entry script and icon were found;
-- the detected **version** and any **"Other tools"** buttons parsed from the
-  module.
+- **Browse…**, **Open Folder** and **Launch** buttons;
+- the module's **Other tools**, parsed from its source, and a status line that
+  reports where the entry script and icon were found.
+
+Below the cards, the **Shared Python path** panel shows whether the three modules
+can import each other and offers **Enable**, **Disable** and **Re-check**.
 
 Paths you set are remembered in `~/.azbmost_launcher.json`. **Reset Defaults**
 restores the sibling locations; **Save Settings** writes the current paths.
@@ -221,7 +230,7 @@ single click to open any of them; otherwise, run each tool's script directly.
 
 ## 5. Tool 1 — BNP-NA: build and place nucleic acid helices
 
-> Folder `../bnp_na/` · entry `bnp_na.py` · version **V13.9** ·
+> Folder `../bnp_na/` · entry `bnp_na.py` · version **V13.21** ·
 > GUI title *"AZBMOST Package Module #1 — Build and Place Nucleic Acid"*
 
 ### 5.1 Principle
@@ -408,7 +417,7 @@ guide.)*
 
 ## 6. Tool 2 — Re-Helix: align helices and reciprocal exchange
 
-> Folder `../re_helix/` · entry `re_helix.py` · version **V3.18** ·
+> Folder `../re_helix/` · entry `re_helix.py` · version **V4.7** ·
 > *"AZBMOST Package Module #2 — Align Helices and Performing Reciprocal Exchanges"*
 
 ### 6.1 Principle
@@ -530,7 +539,7 @@ background reading.)*
 
 ## 7. Tool 3 — Curve It: sculpt structures along a 3D curve
 
-> Folder `../curve_it/` · entry `curve_it.py` · version **V3_4** ·
+> Folder `../curve_it/` · entry `curve_it.py` · version **V3_15** ·
 > *"AZBMOST Package Module #3 — Curve It: Sculpt PDB Structures Along Any 3D Curve"*
 
 ### 7.1 Principle

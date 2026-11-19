@@ -7,7 +7,12 @@ AZBMOST is a small graphical launcher for three structural-biology tools:
 - **Curve It** — sculpt PDB structures along three-dimensional curves
 
 The tools remain independent repositories. This repository contains only the
-launcher and its documentation.
+launcher, its documentation, and the shared AZBMOST look: `azbmost_ui.py` (the
+theme and window parts every AZBMOST window is built from) and
+`azbmost_icons.py` (the app and tool icons, drawn as vector art). Each tool
+carries identical copies of these two files in its library folder.
+
+Launcher version: V1.1.
 
 ## Repository layout
 
@@ -19,6 +24,8 @@ parent-folder/
 ├── azbmost/
 │   ├── assets/
 │   ├── azbmost.py
+│   ├── azbmost_icons.py
+│   ├── azbmost_ui.py
 │   ├── MANUAL.md
 │   └── README.md
 ├── bnp_na/

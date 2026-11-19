@@ -24,7 +24,13 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Dict, Optional
 
+try:  # the shared AZBMOST look, beside this file
+    import azbmost_ui as ui
+except ImportError:  # pragma: no cover - the launcher still runs, unstyled
+    ui = None
 
+
+__version__ = "V1.1"
 APP_NAME = "AZBMOST"
 APP_TITLE = "AZBMOST Universal Launcher"
 AZBMOST_REPO_URL = "https://github.com/azbmost"
@@ -52,7 +58,7 @@ class ModuleMetadata:
 MODULES: tuple[ModuleSpec, ...] = (
     ModuleSpec(
         key="bnp_na",
-        title="BNP-NA",
+        title="BNP_NA",
         subtitle="Build and place nucleic acid helices",
         default_dir="../bnp_na",
         entry_script="bnp_na.py",
@@ -64,7 +70,7 @@ MODULES: tuple[ModuleSpec, ...] = (
     ),
     ModuleSpec(
         key="re_helix",
-        title="Re-Helix",
+        title="RE_Helix",
         subtitle="Reciprocal exchange and helix alignment",
         default_dir="../re_helix",
         entry_script="re_helix.py",
@@ -76,7 +82,7 @@ MODULES: tuple[ModuleSpec, ...] = (
     ),
     ModuleSpec(
         key="curve_it",
-        title="Curve It",
+        title="Curve_It",
         subtitle="Sculpt PDB structures along 3D curves",
         default_dir="../curve_it",
         entry_script="curve_it.py",
@@ -462,6 +468,8 @@ def open_in_file_manager(path: Path) -> None:
 
 
 class ModuleRow:
+    """One module card: icon, name, version, status, folder, launch."""
+
     def __init__(
         self,
         app: "AzbmostLauncher",
@@ -478,45 +486,81 @@ class ModuleRow:
         self.tools_var = tk.StringVar()
         self.icon_image: Optional[tk.PhotoImage] = None
 
-        frame = ttk.Frame(parent, padding=(0, 10))
-        frame.grid(row=row_index, column=0, sticky="ew")
+        border = ui.C.BORDER if ui else "#d8dee4"
+        card = tk.Frame(parent, background="#ffffff", highlightthickness=1, highlightbackground=border,
+                        highlightcolor=border, borderwidth=0)
+        card.grid(row=0, column=row_index, sticky="nsew", padx=(0 if row_index == 0 else 8, 0))
+        frame = ttk.Frame(card, padding=(18, 16, 18, 16))
+        frame.pack(fill="both", expand=True)
         frame.columnconfigure(1, weight=1)
 
-        self.icon_label = ttk.Label(frame, width=8, anchor="center")
-        self.icon_label.grid(row=0, column=0, rowspan=5, sticky="n", padx=(0, 12))
+        if ui is not None:
+            self.icon_label = ui.IconCanvas(frame, spec.key, size=56, bg="#ffffff")
+        else:
+            self.icon_label = ttk.Label(frame, width=8, anchor="center")
+        self.icon_label.grid(row=0, column=0, rowspan=2, sticky="nw", padx=(0, 14))
 
-        title_frame = ttk.Frame(frame)
-        title_frame.grid(row=0, column=1, columnspan=4, sticky="ew")
-        ttk.Label(title_frame, text=spec.title, style="ModuleTitle.TLabel").pack(side="left")
-        ttk.Label(title_frame, text=f"  {spec.subtitle}", style="Subtitle.TLabel").pack(side="left")
+        title_line = ttk.Frame(frame)
+        title_line.grid(row=0, column=1, sticky="nw", pady=(4, 0))
+        ttk.Label(title_line, text=spec.title, style="ModuleTitle.TLabel").pack(side="left")
+        self.version_label = ttk.Label(title_line, text="", style="Version.TLabel", padding=(7, 1))
+        self.version_label.pack(side="left", padx=(8, 0), pady=(2, 0))
+        self.subtitle_label = ttk.Label(frame, text=spec.subtitle, style="Subtitle.TLabel", wraplength=230,
+                                        justify="left")
+        self.subtitle_label.grid(row=1, column=1, sticky="nw", pady=(2, 0))
 
+        if ui is not None:
+            self.chip = ui.StatusChip(frame, text="", kind="off")
+        else:
+            self.chip = ttk.Label(frame)
+        self.chip.grid(row=2, column=0, columnspan=2, sticky="w", pady=(14, 6))
+
+        ttk.Label(frame, text="Folder", style="Field.TLabel").grid(row=3, column=0, columnspan=2, sticky="w")
         entry = ttk.Entry(frame, textvariable=self.path_var)
-        entry.grid(row=1, column=1, sticky="ew", pady=(6, 3))
+        entry.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(3, 8))
         entry.bind("<FocusOut>", lambda _event: self.on_path_changed())
         entry.bind("<Return>", lambda _event: self.on_path_changed())
 
-        ttk.Button(frame, text="Browse...", command=self.browse).grid(row=1, column=2, padx=(8, 0), pady=(6, 3))
-        ttk.Button(frame, text="Launch", command=self.launch).grid(row=1, column=3, padx=(8, 0), pady=(6, 3))
-        ttk.Button(frame, text="Open Folder", command=self.open_folder).grid(
-            row=1, column=4, padx=(8, 0), pady=(6, 3)
+        buttons = ttk.Frame(frame)
+        buttons.grid(row=5, column=0, columnspan=2, sticky="ew")
+        buttons.columnconfigure(2, weight=1)
+        ttk.Button(buttons, text="Browse...", command=self.browse).grid(row=0, column=0, sticky="w")
+        ttk.Button(buttons, text="Open Folder", command=self.open_folder).grid(row=0, column=1, sticky="w",
+                                                                           padx=(8, 0))
+        ttk.Button(buttons, text="Launch", command=self.launch, style="Accent.TButton").grid(
+            row=0, column=3, sticky="e"
         )
 
-        ttk.Label(frame, textvariable=self.status_var, style="Status.TLabel").grid(
-            row=2, column=1, columnspan=4, sticky="w"
-        )
-        ttk.Label(frame, textvariable=self.version_var, style="Metadata.TLabel").grid(
-            row=3, column=1, columnspan=4, sticky="w"
-        )
-        ttk.Label(
+        if ui is not None:
+            ui.hairline(frame).grid(row=6, column=0, columnspan=2, sticky="ew", pady=(16, 10))
+        self.tools_caption = ttk.Label(frame, text="OTHER TOOLS", style="Caption.TLabel")
+        self.tools_caption.grid(row=7, column=0, columnspan=2, sticky="nw")
+        self.tools_label = ttk.Label(
             frame,
             textvariable=self.tools_var,
             style="Metadata.TLabel",
-            wraplength=900,
+            wraplength=320,
             justify="left",
-        ).grid(row=4, column=1, columnspan=4, sticky="w")
+        )
+        self.tools_label.grid(row=8, column=0, columnspan=2, sticky="nw", pady=(4, 0))
+        self.status_label = ttk.Label(
+            frame,
+            textvariable=self.status_var,
+            style="Status.TLabel",
+            wraplength=320,
+            justify="left",
+        )
+        self.status_label.grid(row=9, column=0, columnspan=2, sticky="nw", pady=(12, 0))
+        frame.bind("<Configure>", self._rewrap, add="+")
 
         self.path_var.trace_add("write", lambda *_args: self.refresh(save=False))
         self.refresh(save=False)
+
+    def _rewrap(self, event) -> None:
+        width = max(160, event.width - 40)
+        self.tools_label.configure(wraplength=width)
+        self.status_label.configure(wraplength=width)
+        self.subtitle_label.configure(wraplength=max(140, event.width - 110))
 
     def browse(self) -> None:
         directory = filedialog.askdirectory(
@@ -584,26 +628,39 @@ class ModuleRow:
 
         if script_path.is_file():
             status = f"Ready: {script_path}"
+            chip = ("ok", "Ready")
         elif module_dir.is_dir():
             status = f"Folder found, but {self.spec.entry_script} is missing."
+            chip = ("warn", f"{self.spec.entry_script} missing")
         else:
             status = "Folder not found."
+            chip = ("error", "Folder not found")
         if icon_path:
             status += f"  Icon: {icon_path.name}"
         else:
             status += "  Icon: not found"
         self.status_var.set(status)
         self.version_var.set(f"Version: {metadata.version}")
+        self.version_label.configure(text=metadata.version)
+        # The card's caption already says "Other tools".
         if metadata.other_tools:
-            self.tools_var.set(f"Other tools: {', '.join(metadata.other_tools)}")
+            self.tools_var.set("  ·  ".join(metadata.other_tools))
         else:
-            self.tools_var.set("Other tools: none detected")
+            self.tools_var.set("none detected")
+        if hasattr(self.chip, "set"):
+            self.chip.set(*chip)
+        else:
+            self.chip.configure(text=chip[1])
 
         self.set_icon(icon_path)
         if save:
             save_config(self.app.path_vars)
 
     def set_icon(self, icon_path: Optional[Path]) -> None:
+        """Remember the module's icon file (the card draws the vector icon)."""
+        if ui is not None:
+            self.icon_image = None
+            return
         if not icon_path:
             self.icon_image = self.app.placeholder_icon
             self.icon_label.configure(image=self.icon_image, text="")
@@ -642,9 +699,23 @@ class AzbmostLauncher:
 
     def configure_window(self) -> None:
         self.root.title(APP_TITLE)
-        self.root.minsize(880, 560)
+        self.root.minsize(1060, 640)
         self.set_window_icon()
 
+        if ui is not None:
+            style = ui.apply_theme(self.root, "azbmost")
+            self.root.geometry("1240x680")
+            style.configure("ModuleTitle.TLabel", font="AzbTitle", foreground=ui.C.TEXT)
+            style.configure("Subtitle.TLabel", foreground=ui.C.MUTED)
+            style.configure("Status.TLabel", foreground=ui.C.MUTED, font="AzbSmall")
+            style.configure("Metadata.TLabel", foreground=ui.C.TEXT_2, font="AzbSmall")
+            style.configure("Caption.TLabel", foreground=ui.C.MUTED, font="AzbTiny")
+            style.configure("Version.TLabel", background=ui.C.SUBTLE, foreground=ui.C.TEXT_2,
+                            font="AzbTiny")
+            style.configure("Footer.TLabel", background=ui.C.SUBTLE, foreground=ui.C.TEXT_2,
+                            font="AzbSmall")
+            style.configure("Link.TLabel", foreground=ui.C.ACCENT)
+            return
         style = ttk.Style()
         if platform.system() == "Darwin":
             style.theme_use("aqua")
@@ -666,54 +737,103 @@ class AzbmostLauncher:
 
     def build_ui(self) -> None:
         config = load_config()
-
-        outer = ttk.Frame(self.root, padding=18)
-        outer.grid(row=0, column=0, sticky="nsew")
-        outer.columnconfigure(0, weight=1)
         self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(0, weight=1)
+        self.root.rowconfigure(2, weight=1)
 
-        ttk.Label(outer, text=APP_TITLE, font=("", 20, "bold")).grid(row=0, column=0, sticky="w")
-        repo_link = ttk.Label(outer, text=AZBMOST_REPO_URL, cursor="hand2", style="Link.TLabel")
-        repo_link.grid(row=1, column=0, sticky="w", pady=(3, 0))
+        # --- Header ------------------------------------------------------------
+        if ui is not None:
+            header = ui.Header(
+                self.root,
+                "azbmost",
+                version=__version__,
+                subtitle="Nucleic-acid model building suite  ·  launcher for BNP_NA, RE_Helix and Curve_It",
+                icon_size=52,
+            )
+            header.grid(row=0, column=0, sticky="ew")
+            right = header.right
+            ui.hairline(self.root).grid(row=1, column=0, sticky="new")
+        else:
+            header = ttk.Frame(self.root, padding=18)
+            header.grid(row=0, column=0, sticky="ew")
+            ttk.Label(header, text=APP_TITLE, font=("", 20, "bold")).pack(anchor="w")
+            right = header
+        repo_link = ttk.Label(right, text=AZBMOST_REPO_URL, cursor="hand2", style="Link.TLabel")
+        repo_link.pack(anchor="e")
         repo_link.bind("<Button-1>", lambda _event: webbrowser.open_new_tab(AZBMOST_REPO_URL))
+
+        # --- Body ---------------------------------------------------------------
+        outer = ttk.Frame(self.root, padding=(22, 18, 22, 18))
+        outer.grid(row=2, column=0, sticky="nsew")
+        outer.columnconfigure(0, weight=1)
+        outer.rowconfigure(1, weight=1)
+
         ttk.Label(
             outer,
             text="Set the location of each module repository, then launch its GUI with one click.",
             style="Subtitle.TLabel",
-        ).grid(row=2, column=0, sticky="w", pady=(4, 14))
+        ).grid(row=0, column=0, sticky="w", pady=(0, 12))
 
         rows_frame = ttk.Frame(outer)
-        rows_frame.grid(row=3, column=0, sticky="nsew")
-        rows_frame.columnconfigure(0, weight=1)
+        rows_frame.grid(row=1, column=0, sticky="nsew")
+        rows_frame.rowconfigure(0, weight=1)
 
         for row_index, spec in enumerate(MODULES):
+            rows_frame.columnconfigure(row_index, weight=1, uniform="modules")
             initial = Path(config.get(spec.key, str(default_module_dir(spec))))
-            row = ModuleRow(self, rows_frame, spec, row_index * 2, initial)
+            row = ModuleRow(self, rows_frame, spec, row_index, initial)
             self.path_vars[spec.key] = row.path_var
-            if row_index < len(MODULES) - 1:
-                ttk.Separator(rows_frame).grid(row=row_index * 2 + 1, column=0, sticky="ew", pady=(1, 0))
 
-        shared = ttk.Frame(outer)
-        shared.grid(row=4, column=0, sticky="ew", pady=(16, 0))
+        # --- Shared Python path ------------------------------------------------------
+        shared = ui.Card(outer, "Shared Python path") if ui is not None else ttk.Frame(outer)
+        shared.grid(row=2, column=0, sticky="ew", pady=(16, 0))
         shared.columnconfigure(0, weight=1)
-        ttk.Separator(shared).grid(row=0, column=0, columnspan=4, sticky="ew", pady=(0, 10))
-        ttk.Label(shared, textvariable=self.shared_var, style="Metadata.TLabel").grid(
-            row=1, column=0, sticky="w"
-        )
-        ttk.Button(shared, text="Enable", command=self.enable_shared).grid(row=1, column=1, padx=(8, 0))
-        ttk.Button(shared, text="Disable", command=self.disable_shared).grid(row=1, column=2, padx=(8, 0))
-        ttk.Button(shared, text="Re-check", command=self.recheck_shared).grid(row=1, column=3, padx=(8, 0))
-        ttk.Label(shared, textvariable=self.shared_detail_var, style="Status.TLabel").grid(
-            row=2, column=0, columnspan=4, sticky="w", pady=(4, 0)
-        )
+        if ui is not None:
+            self.shared_chip = ui.StatusChip(shared, textvariable=self.shared_var, kind="busy",
+                                             label_style="Metadata.TLabel")
+            self.shared_chip.grid(row=0, column=0, sticky="w")
+        else:
+            self.shared_chip = None
+            ttk.Label(shared, textvariable=self.shared_var, style="Metadata.TLabel").grid(
+                row=0, column=0, sticky="w"
+            )
+        ttk.Button(shared, text="Enable", command=self.enable_shared).grid(row=0, column=1, padx=(8, 0))
+        ttk.Button(shared, text="Disable", command=self.disable_shared).grid(row=0, column=2, padx=(8, 0))
+        ttk.Button(shared, text="Re-check", command=self.recheck_shared).grid(row=0, column=3, padx=(8, 0))
+        self.shared_detail_label = ttk.Label(shared, textvariable=self.shared_detail_var, style="Status.TLabel",
+                                             wraplength=900, justify="left")
+        self.shared_detail_label.grid(row=1, column=0, columnspan=4, sticky="w", pady=(6, 0))
+        shared.bind("<Configure>", lambda event: self.shared_detail_label.configure(
+            wraplength=max(300, event.width - 40)), add="+")
+        self.shared_var.trace_add("write", lambda *_args: self._refresh_shared_chip())
 
-        controls = ttk.Frame(outer)
-        controls.grid(row=5, column=0, sticky="ew", pady=(18, 0))
-        controls.columnconfigure(0, weight=1)
-        ttk.Label(controls, textvariable=self.footer_var, style="Footer.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Button(controls, text="Reset Defaults", command=self.reset_defaults).grid(row=0, column=1, padx=(8, 0))
-        ttk.Button(controls, text="Save Settings", command=self.save_settings).grid(row=0, column=2, padx=(8, 0))
+        # --- Footer ---------------------------------------------------------------------
+        if ui is not None:
+            ui.hairline(self.root).grid(row=3, column=0, sticky="ew")
+            footer = ui.Footer(self.root, textvariable=self.footer_var)
+            footer.grid(row=4, column=0, sticky="ew")
+            footer.add_button("Reset Defaults", self.reset_defaults)
+            footer.add_button("Save Settings", self.save_settings, primary=True)
+        else:
+            controls = ttk.Frame(outer)
+            controls.grid(row=3, column=0, sticky="ew", pady=(18, 0))
+            controls.columnconfigure(0, weight=1)
+            ttk.Label(controls, textvariable=self.footer_var, style="Footer.TLabel").grid(row=0, column=0, sticky="w")
+            ttk.Button(controls, text="Reset Defaults", command=self.reset_defaults).grid(row=0, column=1, padx=(8, 0))
+            ttk.Button(controls, text="Save Settings", command=self.save_settings).grid(row=0, column=2, padx=(8, 0))
+
+    def _refresh_shared_chip(self) -> None:
+        if self.shared_chip is None:
+            return
+        text = self.shared_var.get()
+        if "could not measure" in text:
+            kind = "error"
+        elif "OFF" in text:
+            kind = "off"
+        elif "ON" in text:
+            kind = "ok" if "3 of 3" in text else "warn"
+        else:
+            kind = "busy"
+        self.shared_chip.set(kind)
 
     def make_placeholder_icon(self) -> tk.PhotoImage:
         image = tk.PhotoImage(width=56, height=56)
