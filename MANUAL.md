@@ -8,9 +8,9 @@ principles, and their day-to-day usage.
 
 | # | Tool | Folder | Version | One-line purpose |
 | --- | --- | --- | --- | --- |
-| 1 | **BNP-NA** (`bnp_na`) | `../bnp_na/` | V13.21 | Build and place B/A/Z-DNA and A-RNA helices; B-Z, triplex, and analysis helpers |
+| 1 | **BNP-NA** (`bnp_na`) | `../bnp_na/` | V13.23 | Build and place B/A/Z-DNA, A-RNA and P-DNA helices; B-Z, B-P, triplex, and analysis helpers |
 | 2 | **Re-Helix** (`re_helix`) | `../re_helix/` | V4.7 | Align helices and perform reciprocal exchanges (crossovers/junctions) |
-| 3 | **Curve It** (`curve_it`) | `../curve_it/` | V3_15 | Sculpt a straight PDB structure so its axis follows any 3D curve |
+| 3 | **Curve It** (`curve_it`) | `../curve_it/` | V3_16 | Sculpt a straight PDB structure so its axis follows any 3D curve |
 
 The `azbmost.py` script in this folder is a universal launcher (V1.1): it lets you
 point at each module's folder and start its GUI with one click. The launcher and
@@ -47,7 +47,7 @@ files to one another in a natural pipeline:
 ```
         BNP-NA                     Re-Helix                    Curve It
   build a straight helix  ->  align helices and cut/    ->  bend the finished
-  (B/A/Z-DNA, A-RNA),         reconnect their backbones     assembly so its axis
+  (B/A/Z/P-DNA, A-RNA),       reconnect their backbones     assembly so its axis
   place it in space           into crossovers, junctions,   follows an arbitrary
                               bowties; symmetrize, add       3D curve (rings,
                               LINK records, restraints       super-helices, knots)
@@ -230,7 +230,7 @@ single click to open any of them; otherwise, run each tool's script directly.
 
 ## 5. Tool 1 — BNP-NA: build and place nucleic acid helices
 
-> Folder `../bnp_na/` · entry `bnp_na.py` · version **V13.21** ·
+> Folder `../bnp_na/` · entry `bnp_na.py` · version **V13.23** ·
 > GUI title *"AZBMOST Package Module #1 — Build and Place Nucleic Acid"*
 
 ### 5.1 Principle
@@ -241,7 +241,12 @@ A-DNA, and A-RNA the tool writes a 12-column base-pair/helical-step parameter
 table and calls `x3dna-dssr rebuild ... --par-type=heli`; for Z-DNA it uses
 DSSR's built-in fiber model (`x3dna-dssr fiber --model=Z-DNA`). Because the
 geometry comes from an explicit parameter table, every helix is reproducible and
-tunable rather than copied from a reference structure.
+tunable rather than copied from a reference structure. The exception is
+**P-DNA** (since V13.22), the Pauling-like DNA of the Pf1 filamentous phage: both
+strands wind around the axis with their phosphates at the centre and every base
+pointing outward, so no base pairs form. It is built from one level of the
+deposited structure (PDB 1PFI), bundled as `core_PDNA.py`. The template is exactly
+helical, at 131.84° and 6.10 Å per nucleotide.
 
 After building, BNP-NA runs a fixed, inspectable **pipeline**:
 
@@ -277,12 +282,15 @@ L-residue annotations.
 Steps in the GUI:
 
 1. Check the startup status line for `x3dna-dssr` (`FOUND`/`NOT FOUND`).
-2. Choose **B-DNA**, **A-DNA**, **A-RNA**, or **Z-DNA**.
+2. Choose **B-DNA**, **A-DNA**, **A-RNA**, **Z-DNA**, or **P-DNA**.
 3. For B/A-DNA and A-RNA, enter a 5'→3' sequence (DNA uses `A T C G`; RNA uses
    `A U C G`). Whitespace is ignored, and compact counts are supported —
    `A10T5C2G` expands to ten A, five T, two C, one G. For Z-DNA the sequence
    field is disabled; enter a **positive even** helix length instead (the tool
-   passes `length/2` as the DSSR repeat count).
+   passes `length/2` as the DSSR repeat count). For P-DNA each strand takes its
+   own sequence: **Strand I (5'→3')** and an optional **Strand II**, which by
+   default is the reverse complement of strand I; both strands must be the same
+   length.
 4. Optionally set a **helix name** (blank yields a default like `B-DNA25`).
 5. Choose an **output folder**.
 6. Adjust DSSR parameters, minimization, hydrogen deletion, L-form mirror, and
@@ -305,6 +313,11 @@ in intermediate names is the helical repeat `360 / h-Twist` (default twist
 | A-DNA | `rebuild --backbone=A-DNA --par-type=heli` | yes | off |
 | A-RNA | `rebuild --backbone=RNA --par-type=heli` | yes | off |
 | Z-DNA | `fiber --model=Z-DNA` | no | not available |
+| P-DNA | none: bundled 1PFI template (`core_PDNA.py`) | no (fixed parameters, shown read-only) | off (can be enabled) |
+
+DSSR finds no helix in P-DNA, so align-to-Z superposes a P-DNA model onto the
+ideal template-built model instead of calling DSSR. `bnp_na_lib/build_pdna.py`
+builds P-DNA on its own from the command line.
 
 ### 5.4 DSSR parameter customization
 
@@ -379,6 +392,22 @@ runnable directly from `bnp_na_lib/`:
   `none`), an **axis source** (`auto`/`dssr`/`pca`), and optional **Z-DNA
   terminal auto-trim** (each Z chain should start pyrimidine, end purine; prepare
   Z inputs 2 bp long so at most one bp can be trimmed per end).
+- **B-P builder** (`make_BP.py`, `build_bp.py`; junction cores `core_BP.py` and
+  `core_BP3.py`). Joins B-DNA and P-DNA helices through modeled B-P junction
+  cores. Inputs alternate in either order (`B P B …` or `P B P …`). Types are
+  detected from the phosphate radius, or given as letters such as `BPB`.
+  **Transition** (`--transition`) sets how many nucleotides per strand are rebuilt
+  at each junction. `2` (default) is the compact core. With `3`, every backbone
+  step on both strands turns forward, between the B-DNA and P-DNA twists.
+  The P-DNA's terminal levels become the transition and keep their bases:
+  - a P-DNA needs at least 4 levels for one junction and 7 for two (5 and 6 with
+    `--transition 3`);
+  - a B-DNA keeps every base pair and needs at least 3 bp (5 with junctions at
+    both ends).
+
+  There is no experimental B-P junction structure: the cores were modeled once,
+  offline, by loop closure from ideal nucleotide geometry. Building is rigid
+  fitting, trimming, base grafting and ligation only, so it is immediate.
 - **Triplex converter** (`convert_to_triplex_pdbV2_1.py`). Adds a Hoogsteen /
   reverse-Hoogsteen third strand over a chosen strand-I range, writing triplets
   `Z·X-Y`. Modes: `antiparallel` (`G·G-C`, strand-I range all G) and `parallel`
@@ -403,6 +432,8 @@ runnable directly from `bnp_na_lib/`:
 ```bash
 python3 bnp_na.py --version
 python3 bnp_na_lib/make_BZV2_3.py --axis-mode codirectional --out multi_BZ.pdb B1.pdb Z1.pdb B2.pdb
+python3 bnp_na_lib/build_pdna.py A12 --name P12 --out-dir .
+python3 bnp_na_lib/make_BP.py --types BPB --transition 2 --out BPB.pdb B12.pdb P12.pdb B12b.pdb
 python3 bnp_na_lib/convert_to_triplex_pdbV2_1.py duplex.pdb --strand-I A --range 10:18 --mode antiparallel
 python3 bnp_na_lib/angle_helical_axisV2_2.py -i helix.pdb --point1 "A:5:C1*" --point2 "B:18:C1*"
 python3 bnp_na_lib/helical_axis_info.py -i model.pdb --chains "C D" --helix-bp 24 --bild axis.bild
@@ -539,7 +570,7 @@ background reading.)*
 
 ## 7. Tool 3 — Curve It: sculpt structures along a 3D curve
 
-> Folder `../curve_it/` · entry `curve_it.py` · version **V3_15** ·
+> Folder `../curve_it/` · entry `curve_it.py` · version **V3_16** ·
 > *"AZBMOST Package Module #3 — Curve It: Sculpt PDB Structures Along Any 3D Curve"*
 
 ### 7.1 Principle
@@ -598,6 +629,23 @@ components…** (GUI).
 curvature/writhe, viewer, and the optional `<curve>_interpolated` helper file).
 `--interp-mode n` gives exactly `--interp-n` arc-length-even points;
 `--interp-mode p` inserts `--interp-p` points between each original pair.
+
+**Curve metrics.** For a closed curve, Curve It reports three values:
+
+- the length;
+- the writhe of the exact polyline it maps onto;
+- the total curvature.
+
+In the default `auto` curvature mode (V3_16), the total curvature is the sum of
+the turning angles of that polyline in two cases:
+
+- **The curve is polygon-like:** straight stretches meet at corners. This
+  includes KnotPlot polygons and curves densified with `--interp-mode p`.
+- **The spline overshoots:** a periodic spline through the points turns more
+  than the polyline by more than sampling a smooth curve explains.
+
+Otherwise it is the periodic spline curvature. The GUI's **Curvature used**
+field and the run report's `Curvature estimator:` line name the choice.
 
 **Outputs.** The curved model goes to `-o/--output-pdb` or `<input>_curved.pdb`;
 a rescaled input curve is saved as `<curve>_rescaled.xyz`; a GUI-interpolated
